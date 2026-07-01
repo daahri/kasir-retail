@@ -1,0 +1,17 @@
+{
+  "name": "Retail Pro Kasir",
+  "short_name": "RetailPro",
+  "description": "Sistem Kasir & Scanner Retail Pro",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#2b6cb0",
+  "theme_color": "#2b6cb0",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3081/3081840.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
