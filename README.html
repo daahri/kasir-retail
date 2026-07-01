@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Retail Pro App</title>
+    
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#2b6cb0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+    <style>
+        :root { --primary: #2b6cb0; --success: #38a169; --dark: #2d3748; --light: #edf2f7; }
+        body { font-family: sans-serif; margin: 0; padding: 15px; background: var(--light); color: var(--dark); }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.08); }
+        h2 { margin-top: 0; color: var(--primary); border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; font-size: 20px; }
+        #reader { width: 100%; background: #000; border-radius: 10px; overflow: hidden; margin-bottom: 15px; }
+        .preview-box { margin-top: 15px; text-align: center; border: 2px dashed #cbd5e0; padding: 10px; border-radius: 8px; background: #f7fafc; }
+        #photoPreview { max-width: 100%; height: auto; border-radius: 6px; display: none; margin-top: 8px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { border-bottom: 1px solid #e2e8f0; padding: 12px 10px; text-align: left; font-size: 14px; }
+        th { background: #f7fafc; font-weight: bold; }
+        .total-box { background: #e2e8f0; padding: 15px; border-radius: 8px; font-size: 18px; font-weight: bold; margin-top: 20px; display: flex; justify-content: space-between; color: var(--primary); }
+        .btn-success { width: 100%; padding: 14px; background: var(--success); color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 16px; margin-top: 15px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2 style="text-align: center; border: none; margin-bottom: 20px;">🏪 Retail Pro App</h2>
+    
+    <div id="reader"></div>
+
+    <div class="preview-box">
+        <b>📸 Foto Bukti Scan Terakhir:</b><br>
+        <img id="photoPreview" alt="Pratinjau Bukti">
+        <span id="noPhotoText" style="color: #a0aec0; font-size: 14px;">Membidik saat barcode terdeteksi...</span>
+    </div>
+
+    <canvas id="captureCanvas" style="display:none;"></canvas>
+
+    <h2>🛒 Keranjang Belanja</h2>
+    <table>
+        <thead>
+            <tr><th>Nama Produk</th><th style="text-align: center;">Qty</th><th>Subtotal</th></tr>
+        </thead>
+        <tbody id="cartBody">
+            <tr><td colspan="3" style="text-align:center; color:#a0aec0;">Membuka kamera...</td></tr>
+        </tbody>
+    </table>
+
+    <div class="total-box">
+        <span>TOTAL (+ PPN 11%):</span>
+        <span id="totalHarga">Rp 0</span>
+    </div>
+
+    <button class="btn-success" onclick="simpanKeExcelDanKasir()">SELESAI & KIRIM DATA KE EXCEL</button>
+</div>
+
+<script>
+    const WEB_APP_URL = "URL_APPS_SCRIPT_ANDA"; // Masukkan URL Google Sheets Anda di sini
+
+    const databaseBarang = {
+        "101": { name: "Susu Kotak UHT 1L", price: 18500 },
+        "102": { name: "Roti Tawar Gandum", price: 15000 },
+        "103": { name: "Kopi Kenangan Botol", price: 9500 }
+    };
+
+    let keranjang = [];
+    let html5QrcodeScanner;
+    let lastCapturedPhoto = ""; 
+    let isScanning = false;
+
+    // OTOMATIS DAFTARKAN KODE SEBAGAI APLIKASI HP (REGISTER SERVICE WORKER)
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js')
+        .then(() => console.log("Aplikasi Kasir Terdaftar sebagai Aplikasi HP (PWA) !"))
+        .catch(err => console.log("Gagal daftar PWA:", err));
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+        setTimeout(() => { startScanner(); }, 500);
+    });
+
+    function startScanner() {
+        const readerElement = document.getElementById("reader");
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+        .then(function(stream) {
+            stream.getTracks().forEach(track => track.stop());
+            initiateHtml5Scanner();
+        })
+        .catch(function(error) {
+            readerElement.innerHTML = `<div style="color: #fc8181; padding: 20px; text-align: center; background: #2d3748;">⚠️ Kamera Butuh Izin Pertama Kali Pasang. Silakan Izinkan di Browser HP Anda lalu Mulai Ulang Aplikasi.</div>`;
+        });
+    }
+
+    function initiateHtml5Scanner() {
+        const config = { fps: 20, qrbox: function(w, h) { return { width: Math.floor(w * 0.85), height: Math.floor(h * 0.45) }; }, aspectRatio: 1.777778 };
+        html5QrcodeScanner = new Html5Qrcode("reader");
+        html5QrcodeScanner.start({ facingMode: { exact: "environment" } }, config, onScanSuccess)
+        .catch(err => {
+            html5QrcodeScanner.start({ facingMode: "environment" }, config, onScanSuccess).catch(e => console.log(e));
+        });
+    }
+
+    function onScanSuccess(decodedText) {
+        if (isScanning) return;
+        isScanning = true;
+        setTimeout(() => { isScanning = false; }, 2000);
+
+        if (navigator.vibrate) navigator.vibrate(100);
+        const barcodeAngka = decodedText.trim();
+
+        if (databaseBarang[barcodeAngka]) {
+            takeSnapshot();
+            const barang = databaseBarang[barcodeAngka];
+            const adaDiKeranjang = keranjang.find(item => item.barcode === barcodeAngka);
+
+            if (adaDiKeranjang) {
+                adaDiKeranjang.qty++;
+                adaDiKeranjang.photo = lastCapturedPhoto; 
+            } else {
+                keranjang.push({ barcode: barcodeAngka, name: barang.name, price: barang.price, qty: 1, photo: lastCapturedPhoto });
+            }
+            renderKeranjang();
+        } else {
+            alert(`Produk [${barcodeAngka}] Belum Terdaftar.`);
+        }
+    }
+
+    function takeSnapshot() {
+        const video = document.querySelector("#reader video");
+        const canvas = document.getElementById("captureCanvas");
+        if (video) {
+            canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+            canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+            lastCapturedPhoto = canvas.toDataURL("image/jpeg", 0.5);
+            document.getElementById("photoPreview").src = lastCapturedPhoto;
+            document.getElementById("photoPreview").style.display = "inline-block";
+            document.getElementById("noPhotoText").style.display = "none";
+        }
+    }
+
+    function renderKeranjang() {
+        const tbody = document.getElementById("cartBody"); tbody.innerHTML = ""; let subtotal = 0;
+        keranjang.forEach(item => {
+            let totalItem = item.price * item.qty; subtotal += totalItem;
+            tbody.innerHTML += `<tr><td><b>${item.name}</b><br><small>Code: ${item.barcode}</small></td><td style="text-align:center;">${item.qty}x</td><td>Rp ${totalItem.toLocaleString('id-ID')}</td></tr>`;
+        });
+        let totalAkhir = subtotal * 1.11;
+        document.getElementById("totalHarga").innerText = "Rp " + Math.round(totalAkhir).toLocaleString('id-ID');
+        document.getElementById("totalHarga").dataset.value = Math.round(totalAkhir);
+    }
+
+    function simpanKeExcelDanKasir() {
+        if (keranjang.length === 0) return alert("Keranjang kosong!");
+        keranjang.forEach(item => {
+            fetch(WEB_APP_URL, { method: "POST", mode: "no-cors", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ barcode: item.barcode, name: item.name, total: item.price * item.qty, photo: item.photo || "" }) });
+        });
+        alert("🛒 Sukses! Data Masuk Excel.");
+        keranjang = []; document.getElementById("photoPreview").style.display = "none"; document.getElementById("noPhotoText").style.display = "inline"; renderKeranjang();
+    }
+</script>
+</body>
+</html>
